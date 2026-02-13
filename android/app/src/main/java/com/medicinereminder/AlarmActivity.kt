@@ -2,7 +2,6 @@ package com.medicinereminder
 
 import android.content.Context
 import android.content.Intent
-import android.content.SharedPreferences
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -74,17 +73,16 @@ class AlarmActivity : AppCompatActivity() {
     }
     
     private fun markTaskComplete() {
-        val sharedPrefs = getSharedPreferences("TaskData", Context.MODE_PRIVATE)
-        val tasksJson = sharedPrefs.getString("tasks", "[]")
-        
+        val tasksJson = AsyncStorageHelper.getTasksJson(this)
+
         try {
             val jsonArray = JSONArray(tasksJson)
-            
+
             for (i in 0 until jsonArray.length()) {
                 val task = jsonArray.getJSONObject(i)
                 if (task.getString("id") == taskId) {
                     val isRecurring = task.optBoolean("isRecurring", false)
-                    
+
                     if (isRecurring) {
                         // Reschedule for tomorrow
                         val calendar = Calendar.getInstance()
@@ -93,34 +91,31 @@ class AlarmActivity : AppCompatActivity() {
                             "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
                             Locale.US
                         ).parse(scheduledTime)
-                        
+
                         if (originalTime != null) {
                             calendar.time = originalTime
                             val hour = calendar.get(Calendar.HOUR_OF_DAY)
                             val minute = calendar.get(Calendar.MINUTE)
-                            
+
                             // Set to tomorrow at same time
                             val tomorrow = Calendar.getInstance()
                             tomorrow.add(Calendar.DAY_OF_YEAR, 1)
                             tomorrow.set(Calendar.HOUR_OF_DAY, hour)
                             tomorrow.set(Calendar.MINUTE, minute)
                             tomorrow.set(Calendar.SECOND, 0)
-                            
-                            // Update task time
+
+                            // Update task time in AsyncStorage
                             task.put("scheduledTime", SimpleDateFormat(
                                 "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
                                 Locale.US
                             ).format(tomorrow.time))
-                            
-                            // Save updated tasks
-                            sharedPrefs.edit()
-                                .putString("tasks", jsonArray.toString())
-                                .apply()
-                            
+
+                            AsyncStorageHelper.saveTasksJson(this, jsonArray.toString())
+
                             // Reschedule alarm
                             val scheduler = AlarmScheduler(this)
                             scheduler.scheduleAlarm(taskId, taskName, tomorrow.timeInMillis)
-                            
+
                             Log.d("AlarmActivity", "Daily alarm rescheduled for tomorrow: ${tomorrow.time}")
                         }
                     } else {
@@ -130,10 +125,8 @@ class AlarmActivity : AppCompatActivity() {
                             "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
                             Locale.US
                         ).format(Date()))
-                        
-                        sharedPrefs.edit()
-                            .putString("tasks", jsonArray.toString())
-                            .apply()
+
+                        AsyncStorageHelper.saveTasksJson(this, jsonArray.toString())
                     }
                     break
                 }
@@ -141,8 +134,8 @@ class AlarmActivity : AppCompatActivity() {
         } catch (e: Exception) {
             Log.e("AlarmActivity", "Error handling task completion", e)
         }
-        
-        // Send event to React Native
+
+        // Send event to React Native to refresh UI
         AlarmModule.sendTaskCompletedEvent(taskId)
     }
     

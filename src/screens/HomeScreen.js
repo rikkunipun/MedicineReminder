@@ -42,43 +42,10 @@ export default function HomeScreen({ navigation }) {
   };
 
   const handleTaskCompleted = async (taskId) => {
-  // Get the task details
-  const allTasks = await TaskStorage.getTasks();
-  const task = allTasks.find(t => t.id === taskId);
-  
-  if (!task) return;
-  
-  if (task.isRecurring) {
-    // For recurring tasks, schedule for tomorrow
-    const originalTime = new Date(task.scheduledTime);
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(originalTime.getHours());
-    tomorrow.setMinutes(originalTime.getMinutes());
-    tomorrow.setSeconds(0);
-    
-    // Update task with new time
-    await TaskStorage.updateTask(taskId, {
-      scheduledTime: tomorrow.toISOString(),
-      completed: false
-    });
-    
-    // Reschedule alarm for tomorrow
-    await AlarmModule.scheduleAlarm(
-      taskId,
-      task.name,
-      tomorrow.getTime()
-    );
-    
-    console.log('Recurring task rescheduled for tomorrow');
-  } else {
-    // For one-time tasks, mark as complete and cancel
-    await TaskStorage.markTaskComplete(taskId);
-    await AlarmModule.cancelAlarm(taskId);
-  }
-  
-  loadTasks();
-};
+    // Kotlin (AlarmActivity) already handled rescheduling/completion
+    // and wrote the update to AsyncStorage. Just refresh the UI.
+    loadTasks();
+  };
 
   const deleteTask = async (task) => {
     Alert.alert(
