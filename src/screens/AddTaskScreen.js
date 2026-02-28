@@ -66,7 +66,8 @@ export default function AddTaskScreen({ navigation, route }) {
       const success = await AlarmModule.scheduleAlarm(
         task.id,
         task.name,
-        scheduledDateTime.getTime()
+        scheduledDateTime.getTime(),
+        isRecurring
       );
 
       if (success) {
@@ -78,10 +79,7 @@ export default function AddTaskScreen({ navigation, route }) {
           [
             {
               text: 'OK',
-              onPress: () => {
-                route.params?.onTaskAdded?.();
-                navigation.goBack();
-              },
+              onPress: () => navigation.goBack(),
             },
           ]
         );

@@ -6,23 +6,35 @@ import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import android.content.Context
+import android.util.Log
 import com.facebook.react.bridge.*
 import com.facebook.react.modules.core.DeviceEventManagerModule
+import java.util.Calendar
 
-class AlarmModule(private val reactContext: ReactApplicationContext) : 
+class AlarmModule(private val reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
-    
+
     override fun getName() = "AlarmModule"
-    
+
     companion object {
+        private const val TAG = "AlarmModule"
+        const val PREFS_NAME = "AlarmTaskPrefs"
         private var instance: AlarmModule? = null
-        
+
         fun sendTaskCompletedEvent(taskId: String) {
             instance?.sendEvent("onTaskCompleted", Arguments.createMap().apply {
                 putString("taskId", taskId)
             })
         }
-        
+
+        fun sendTaskRescheduledEvent(taskId: String, newScheduledTimeMillis: Long) {
+            Log.d(TAG, "Sending onTaskRescheduled event: taskId=$taskId, newTime=$newScheduledTimeMillis")
+            instance?.sendEvent("onTaskRescheduled", Arguments.createMap().apply {
+                putString("taskId", taskId)
+                putDouble("newScheduledTime", newScheduledTimeMillis.toDouble())
+            })
+        }
+
         fun sendTaskSnoozedEvent(taskId: String, newTime: Long) {
             instance?.sendEvent("onTaskSnoozed", Arguments.createMap().apply {
                 putString("taskId", taskId)
@@ -30,18 +42,42 @@ class AlarmModule(private val reactContext: ReactApplicationContext) :
             })
         }
     }
-    
+
     init {
         instance = this
     }
-    
+
+    // Saves recurring task info to SharedPreferences so AlarmActivity can
+    // access it reliably without depending on AsyncStorage's SQLite.
+    private fun saveTaskInfoToPrefs(taskId: String, taskName: String, isRecurring: Boolean, triggerTimeMillis: Long) {
+        val cal = Calendar.getInstance()
+        cal.timeInMillis = triggerTimeMillis
+        val hour = cal.get(Calendar.HOUR_OF_DAY)
+        val minute = cal.get(Calendar.MINUTE)
+
+        reactContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString("task_name_$taskId", taskName)
+            .putBoolean("task_recurring_$taskId", isRecurring)
+            .putInt("task_hour_$taskId", hour)
+            .putInt("task_minute_$taskId", minute)
+            .apply()
+
+        Log.d(TAG, "Saved task info to prefs: id=$taskId, name=$taskName, recurring=$isRecurring, hour=$hour, minute=$minute")
+    }
+
     @ReactMethod
-    fun scheduleAlarm(taskId: String, taskName: String, triggerTimeMillis: Double, promise: Promise) {
+    fun scheduleAlarm(taskId: String, taskName: String, triggerTimeMillis: Double, isRecurring: Boolean, promise: Promise) {
         try {
+            val triggerMillis = triggerTimeMillis.toLong()
             val scheduler = AlarmScheduler(reactContext)
-            val success = scheduler.scheduleAlarm(taskId, taskName, triggerTimeMillis.toLong())
+            val success = scheduler.scheduleAlarm(taskId, taskName, triggerMillis)
+            if (success) {
+                saveTaskInfoToPrefs(taskId, taskName, isRecurring, triggerMillis)
+            }
             promise.resolve(success)
         } catch (e: Exception) {
+            Log.e(TAG, "scheduleAlarm error", e)
             promise.reject("SCHEDULE_ERROR", e.message, e)
         }
     }
@@ -51,6 +87,14 @@ class AlarmModule(private val reactContext: ReactApplicationContext) :
         try {
             val scheduler = AlarmScheduler(reactContext)
             scheduler.cancelAlarm(taskId)
+            // Clean up SharedPreferences entry for this task.
+            reactContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .remove("task_name_$taskId")
+                .remove("task_recurring_$taskId")
+                .remove("task_hour_$taskId")
+                .remove("task_minute_$taskId")
+                .apply()
             promise.resolve(true)
         } catch (e: Exception) {
             promise.reject("CANCEL_ERROR", e.message, e)
@@ -150,6 +194,13 @@ class AlarmModule(private val reactContext: ReactApplicationContext) :
         }
     }
     
+    // Required by NativeEventEmitter on the JS side.
+    @ReactMethod
+    fun addListener(eventName: String) {}
+
+    @ReactMethod
+    fun removeListeners(count: Int) {}
+
     private fun sendEvent(eventName: String, params: WritableMap?) {
         reactContext
             .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)

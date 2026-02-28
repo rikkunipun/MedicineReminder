@@ -18,11 +18,19 @@ export default function HomeScreen({ navigation }) {
   const [tasks, setTasks] = useState([]);
 
   useEffect(() => {
-    loadTasks();
-    
+    // Reload tasks every time this screen comes into focus (e.g. after adding a task).
+    const unsubscribeFocus = navigation.addListener('focus', loadTasks);
+
+    // Fired when a one-time alarm is confirmed → mark it done.
     const completedSubscription = alarmEmitter.addListener('onTaskCompleted', (event) => {
-      console.log('Task completed:', event.taskId);
+      console.log('Task completed event:', event.taskId);
       handleTaskCompleted(event.taskId);
+    });
+
+    // Fired when a recurring alarm is confirmed → update next scheduled time.
+    const rescheduledSubscription = alarmEmitter.addListener('onTaskRescheduled', (event) => {
+      console.log('Task rescheduled event:', event.taskId, 'newTime:', event.newScheduledTime);
+      handleTaskRescheduled(event.taskId, event.newScheduledTime);
     });
 
     const snoozedSubscription = alarmEmitter.addListener('onTaskSnoozed', (event) => {
@@ -30,10 +38,12 @@ export default function HomeScreen({ navigation }) {
     });
 
     return () => {
+      unsubscribeFocus();
       completedSubscription.remove();
+      rescheduledSubscription.remove();
       snoozedSubscription.remove();
     };
-  }, []);
+  }, [navigation]);
 
   const loadTasks = async () => {
     const loadedTasks = await TaskStorage.getTasks();
@@ -41,9 +51,17 @@ export default function HomeScreen({ navigation }) {
     setTasks(pendingTasks);
   };
 
+  // One-time task confirmed: mark completed in AsyncStorage then refresh.
   const handleTaskCompleted = async (taskId) => {
-    // Kotlin (AlarmActivity) already handled rescheduling/completion
-    // and wrote the update to AsyncStorage. Just refresh the UI.
+    await TaskStorage.markTaskComplete(taskId);
+    loadTasks();
+  };
+
+  // Recurring task confirmed: update scheduledTime in AsyncStorage then refresh.
+  const handleTaskRescheduled = async (taskId, newScheduledTimeMillis) => {
+    const newScheduledTime = new Date(newScheduledTimeMillis).toISOString();
+    console.log('Updating scheduledTime for', taskId, 'to', newScheduledTime);
+    await TaskStorage.updateTask(taskId, { scheduledTime: newScheduledTime });
     loadTasks();
   };
 
@@ -144,7 +162,7 @@ export default function HomeScreen({ navigation }) {
 
       <TouchableOpacity
         style={styles.addButton}
-        onPress={() => navigation.navigate('AddTask', { onTaskAdded: loadTasks })}
+        onPress={() => navigation.navigate('AddTask')}
       >
         <Text style={styles.addButtonText}>+</Text>
       </TouchableOpacity>
